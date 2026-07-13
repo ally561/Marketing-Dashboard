@@ -1,0 +1,220 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Digital Brew — Marketing Funnel Dashboard</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.4/chart.umd.min.js"></script>
+<style>
+  :root{
+    --bg:#0f1115; --panel:#171a21; --panel2:#1e2229; --border:#2a2f3a;
+    --text:#e9edf3; --muted:#9aa4b2; --accent:#f2b632; --good:#3fbf7f;
+    --warn:#f2b632; --bad:#e5534b; --med:#4a90e2;
+  }
+  *{box-sizing:border-box;}
+  body{
+    margin:0; background:var(--bg); color:var(--text);
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+    padding:24px 32px 60px;
+  }
+  h1{font-size:22px; margin:0 0 4px;}
+  .sub{color:var(--muted); font-size:13px; margin-bottom:24px;}
+  .grid{display:grid; grid-template-columns:repeat(auto-fit,minmax(200px,1fr)); gap:14px; margin-bottom:28px;}
+  .card{background:var(--panel); border:1px solid var(--border); border-radius:10px; padding:16px 18px;}
+  .card .label{color:var(--muted); font-size:12px; text-transform:uppercase; letter-spacing:.04em; margin-bottom:6px;}
+  .card .value{font-size:26px; font-weight:700;}
+  .card .goal{color:var(--muted); font-size:12px; margin-top:4px;}
+  .card .bar{height:6px; background:var(--panel2); border-radius:4px; margin-top:10px; overflow:hidden;}
+  .card .bar > div{height:100%; border-radius:4px;}
+  .ok{color:var(--good);} .warn{color:var(--warn);} .bad{color:var(--bad);}
+  section{margin-bottom:32px;}
+  section h2{font-size:15px; text-transform:uppercase; letter-spacing:.05em; color:var(--muted); margin:0 0 12px;}
+  .panel{background:var(--panel); border:1px solid var(--border); border-radius:10px; padding:18px;}
+  .two-col{display:grid; grid-template-columns:1.4fr 1fr; gap:16px;}
+  @media (max-width:900px){.two-col{grid-template-columns:1fr;}}
+  .funnel{display:flex; gap:10px; align-items:stretch; flex-wrap:wrap;}
+  .funnel .stage{flex:1; min-width:120px; background:var(--panel2); border:1px solid var(--border); border-radius:8px; padding:14px; text-align:center;}
+  .funnel .stage .n{font-size:22px; font-weight:700;}
+  .funnel .stage .l{font-size:11px; color:var(--muted); text-transform:uppercase; margin-top:4px;}
+  .funnel .arrow{align-self:center; color:var(--muted); font-size:18px;}
+  table{width:100%; border-collapse:collapse; font-size:13px;}
+  th,td{text-align:left; padding:8px 6px; border-bottom:1px solid var(--border);}
+  th{color:var(--muted); font-weight:500; text-transform:uppercase; font-size:11px;}
+  .sugg{border-left:4px solid var(--muted); background:var(--panel2); border-radius:6px; padding:12px 14px; margin-bottom:10px;}
+  .sugg.high{border-color:var(--bad);} .sugg.medium{border-color:var(--warn);} .sugg.low{border-color:var(--med);}
+  .sugg .t{font-weight:600; font-size:14px; margin-bottom:4px;}
+  .sugg .d{font-size:13px; color:var(--muted); line-height:1.5;}
+  .badge{display:inline-block; font-size:10px; font-weight:700; text-transform:uppercase; padding:2px 6px; border-radius:4px; margin-right:8px;}
+  .badge.high{background:rgba(229,83,75,.2); color:var(--bad);}
+  .badge.medium{background:rgba(242,182,50,.2); color:var(--warn);}
+  .badge.low{background:rgba(74,144,226,.2); color:var(--med);}
+  .refresh{font-size:12px; color:var(--muted); margin-top:-14px; margin-bottom:24px;}
+  a{color:var(--accent);}
+</style>
+</head>
+<body>
+
+<h1>Digital Brew — Marketing Funnel Dashboard</h1>
+<div class="sub" id="genAt">Loading…</div>
+
+<div class="grid" id="kpiGrid"></div>
+
+<section>
+  <h2>Funnel Snapshot (year to date)</h2>
+  <div class="panel">
+    <div class="funnel" id="funnel"></div>
+  </div>
+</section>
+
+<section>
+  <div class="two-col">
+    <div class="panel">
+      <h2>Weekly MQLs vs SQLs</h2>
+      <canvas id="weeklyChart" height="220"></canvas>
+    </div>
+    <div class="panel">
+      <h2>Where recent MQLs came from</h2>
+      <canvas id="sourceChart" height="220"></canvas>
+    </div>
+  </div>
+</section>
+
+<section>
+  <div class="two-col">
+    <div class="panel">
+      <h2>Deal Pipeline by Stage (YTD)</h2>
+      <table id="dealTable"></table>
+    </div>
+    <div class="panel">
+      <h2>Deals Created per Week</h2>
+      <canvas id="dealsChart" height="220"></canvas>
+    </div>
+  </div>
+</section>
+
+<section>
+  <h2>Marketing Director Suggestions</h2>
+  <div id="suggestions"></div>
+</section>
+
+<script>
+async function load() {
+  const res = await fetch('data.json?_=' + Date.now());
+  const data = await res.json();
+  render(data);
+}
+
+function fmtMoney(n) {
+  return '$' + Math.round(n).toLocaleString();
+}
+
+function pctColor(pct) {
+  if (pct >= 90) return 'ok';
+  if (pct >= 60) return 'warn';
+  return 'bad';
+}
+
+function render(data) {
+  document.getElementById('genAt').textContent =
+    'Data as of ' + new Date(data.generated_at).toLocaleString() +
+    (data.seed_note ? ' — ' + data.seed_note : '');
+
+  // KPI cards
+  const mqlPct = Math.min(100, Math.round((data.mql_avg_4wk / data.goals.weekly_mql) * 100));
+  const sqlPct = Math.min(100, Math.round((data.sql_avg_4wk / data.goals.weekly_sql) * 100));
+  const cards = [
+    {label: '4-Wk Avg MQLs / Week', value: data.mql_avg_4wk, goal: 'Goal: ' + data.goals.weekly_mql, pct: mqlPct},
+    {label: '4-Wk Avg SQLs / Week', value: data.sql_avg_4wk, goal: 'Goal: ' + data.goals.weekly_sql, pct: sqlPct},
+    {label: 'SQL → Deal Rate', value: (data.sql_to_deal.rate_pct ?? '—') + '%', goal: data.sql_to_deal.sql_with_deal + ' of ' + data.sql_to_deal.sql_count + ' SQLs', pct: data.sql_to_deal.rate_pct},
+    {label: 'Deal Win Rate', value: (data.deals.win_rate_pct ?? '—') + '%', goal: data.deals.closed_won_count + ' won / ' + data.deals.closed_lost_count + ' lost', pct: data.deals.win_rate_pct},
+    {label: 'Open Pipeline Value', value: fmtMoney(data.deals.open_pipeline_value), goal: 'Across active deal stages', pct: null},
+    {label: 'Closed-Won Revenue (YTD)', value: fmtMoney(data.deals.closed_won_revenue), goal: data.deals.closed_won_count + ' deals closed', pct: null},
+  ];
+  const kpiGrid = document.getElementById('kpiGrid');
+  kpiGrid.innerHTML = cards.map(c => `
+    <div class="card">
+      <div class="label">${c.label}</div>
+      <div class="value ${c.pct != null ? pctColor(c.pct) : ''}">${c.value}</div>
+      <div class="goal">${c.goal}</div>
+      ${c.pct != null ? `<div class="bar"><div style="width:${Math.min(100,c.pct)}%; background:var(--${pctColor(c.pct) === 'ok' ? 'good' : pctColor(c.pct) === 'warn' ? 'warn' : 'bad'})"></div></div>` : ''}
+    </div>
+  `).join('');
+
+  // Funnel
+  const order = ['Lead','Unqualified','Marketing Qualified Lead','Sales Qualified Lead','Customer'];
+  const funnel = document.getElementById('funnel');
+  const stages = order.filter(k => data.lifecycle_snapshot[k] !== undefined);
+  funnel.innerHTML = stages.map((k, i) => `
+    <div class="stage"><div class="n">${data.lifecycle_snapshot[k]}</div><div class="l">${k}</div></div>
+    ${i < stages.length - 1 ? '<div class="arrow">→</div>' : ''}
+  `).join('');
+
+  // Weekly MQL/SQL chart
+  const weeks = data.mql_weekly.map(w => w.week.slice(5));
+  new Chart(document.getElementById('weeklyChart'), {
+    type: 'line',
+    data: {
+      labels: weeks,
+      datasets: [
+        {label: 'MQLs', data: data.mql_weekly.map(w => w.count), borderColor: '#f2b632', backgroundColor: 'rgba(242,182,50,.15)', tension: .3, fill: true},
+        {label: 'SQLs', data: data.sql_weekly.map(w => w.count), borderColor: '#4a90e2', backgroundColor: 'rgba(74,144,226,.15)', tension: .3, fill: true},
+      ]
+    },
+    options: {
+      responsive: true,
+      plugins: {legend: {labels: {color: '#9aa4b2'}}},
+      scales: {
+        x: {ticks: {color: '#9aa4b2', maxRotation: 60, minRotation: 45}, grid: {color: '#2a2f3a'}},
+        y: {ticks: {color: '#9aa4b2'}, grid: {color: '#2a2f3a'}}
+      }
+    }
+  });
+
+  // Source breakdown
+  const srcLabels = Object.keys(data.source_breakdown);
+  const srcValues = Object.values(data.source_breakdown);
+  new Chart(document.getElementById('sourceChart'), {
+    type: 'doughnut',
+    data: {
+      labels: srcLabels,
+      datasets: [{data: srcValues, backgroundColor: ['#f2b632','#4a90e2','#3fbf7f','#e5534b','#9b6bd6','#e28a4a','#5ac8d8','#c9c9c9']}]
+    },
+    options: {responsive: true, plugins: {legend: {position: 'bottom', labels: {color: '#9aa4b2', boxWidth: 12, font: {size: 11}}}}}
+  });
+
+  // Deal table
+  const stageRows = Object.entries(data.deals.by_stage)
+    .map(([name, v]) => `<tr><td>${name}</td><td>${v.count}</td><td>${fmtMoney(v.amount)}</td></tr>`).join('');
+  document.getElementById('dealTable').innerHTML = `
+    <tr><th>Stage</th><th>Count</th><th>Amount</th></tr>${stageRows}`;
+
+  // Deals created weekly
+  new Chart(document.getElementById('dealsChart'), {
+    type: 'bar',
+    data: {
+      labels: data.deals.weekly_created.map(w => w.week.slice(5)),
+      datasets: [{label: 'Deals created', data: data.deals.weekly_created.map(w => w.count), backgroundColor: '#3fbf7f'}]
+    },
+    options: {
+      responsive: true,
+      plugins: {legend: {display: false}},
+      scales: {
+        x: {ticks: {color: '#9aa4b2', maxRotation: 60, minRotation: 45}, grid: {color: '#2a2f3a'}},
+        y: {ticks: {color: '#9aa4b2'}, grid: {color: '#2a2f3a'}}
+      }
+    }
+  });
+
+  // Suggestions
+  document.getElementById('suggestions').innerHTML = data.suggestions.map(s => `
+    <div class="sugg ${s.severity}">
+      <div class="t"><span class="badge ${s.severity}">${s.severity}</span>${s.title}</div>
+      <div class="d">${s.detail}</div>
+    </div>
+  `).join('');
+}
+
+load();
+</script>
+</body>
+</html>
