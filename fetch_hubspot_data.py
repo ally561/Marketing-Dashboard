@@ -30,7 +30,8 @@ BASE_URL = "https://api.hubapi.com"
 # ---- Config: edit these to match your goals / definitions ----------------
 WEEKLY_MQL_GOAL = 25
 WEEKLY_SQL_GOAL = 10
-TRAILING_WEEKS = 12          # how many weeks of history to show in trend charts
+TRAILING_WEEKS = 53          # ~1 year of history, so the dashboard's date-range selector
+                             # (this week / 30 / 60 / 90 days / quarter / YTD) always has enough data
 SQL_TO_DEAL_WINDOW_DAYS = 120  # how far back to look when measuring SQL -> deal rate
 SOURCE_WINDOW_DAYS = 45        # window for the "source of MQLs" breakdown
 
@@ -140,6 +141,35 @@ def bucket_weekly(date_strings, weeks_back):
     return ordered
 
 
+def bucket_weekly_amount(rows, date_key, amount_key, weeks_back):
+    """Bucket (count, amount) by week for deal-style rows with a date + amount property."""
+    now = datetime.now(timezone.utc)
+    earliest = week_start(now - timedelta(weeks=weeks_back))
+    buckets = defaultdict(lambda: {"count": 0, "amount": 0.0})
+    for r in rows:
+        ds = r.get(date_key)
+        if not ds:
+            continue
+        dt = datetime.fromisoformat(ds.replace("Z", "+00:00"))
+        wk = week_start(dt)
+        if wk >= earliest:
+            buckets[wk]["count"] += 1
+            buckets[wk]["amount"] += float(r.get(amount_key) or 0)
+    ordered = []
+    cur = earliest
+    today_week = week_start(now)
+    while cur <= today_week:
+        b = buckets.get(cur, {"count": 0, "amount": 0.0})
+        ordered.append({
+            "week": cur.isoformat(),
+            "count": b["count"],
+            "amount": round(b["amount"], 2),
+            "partial": cur == today_week,
+        })
+        cur += timedelta(days=7)
+    return ordered
+
+
 def fetch_lifecycle_snapshot():
     """Current count of contacts in each lifecycle stage (year to date)."""
     year_start = iso(datetime(datetime.now(timezone.utc).year, 1, 1))
@@ -194,18 +224,29 @@ def fetch_source_breakdown(window_days):
 def fetch_deal_summary():
     year_start = iso(datetime(datetime.now(timezone.utc).year, 1, 1))
     filters = [{"propertyName": "createdate", "operator": "GTE", "value": year_start}]
-    rows = search("deals", filters, ["dealstage", "amount_in_home_currency", "createdate"])
+    rows = search("deals", filters, [
+        "dealstage", "amount_in_home_currency", "createdate",
+        "hs_v2_date_entered_closedwon", "hs_v2_date_entered_closedlost",
+    ])
     by_stage = defaultdict(lambda: {"count": 0, "amount": 0.0})
-    weekly_created = []
-    dates = []
+    created_dates = []
+    won_rows, lost_rows = [], []
     for r in rows:
         p = r["properties"]
         stage = DEAL_STAGE_LABELS.get(p.get("dealstage"), p.get("dealstage") or "Unknown")
         amt = float(p.get("amount_in_home_currency") or 0)
         by_stage[stage]["count"] += 1
         by_stage[stage]["amount"] += amt
-        dates.append(p.get("createdate"))
-    weekly_created = bucket_weekly(dates, TRAILING_WEEKS)
+        created_dates.append(p.get("createdate"))
+        if p.get("hs_v2_date_entered_closedwon"):
+            won_rows.append({"date": p["hs_v2_date_entered_closedwon"], "amount": amt})
+        if p.get("hs_v2_date_entered_closedlost"):
+            lost_rows.append({"date": p["hs_v2_date_entered_closedlost"], "amount": amt})
+
+    weekly_created = bucket_weekly(created_dates, TRAILING_WEEKS)
+    weekly_closed_won = bucket_weekly_amount(won_rows, "date", "amount", TRAILING_WEEKS)
+    weekly_closed_lost = bucket_weekly_amount(lost_rows, "date", "amount", TRAILING_WEEKS)
+
     won = by_stage.get("Closed Won", {"count": 0, "amount": 0})
     lost = by_stage.get("Closed Lost", {"count": 0, "amount": 0})
     win_rate = None
@@ -216,6 +257,8 @@ def fetch_deal_summary():
     return {
         "by_stage": {k: {"count": v["count"], "amount": round(v["amount"], 2)} for k, v in by_stage.items()},
         "weekly_created": weekly_created,
+        "weekly_closed_won": weekly_closed_won,
+        "weekly_closed_lost": weekly_closed_lost,
         "closed_won_count": won["count"],
         "closed_won_revenue": round(won["amount"], 2),
         "closed_lost_count": lost["count"],
@@ -341,9 +384,11 @@ def main():
     print("Fetching lifecycle snapshot...")
     lifecycle_snapshot = fetch_lifecycle_snapshot()
 
-    print("Fetching weekly MQL/SQL entries...")
+    print("Fetching weekly Lead/MQL/SQL/Customer entries...")
+    lead_weekly = fetch_weekly_entries("hs_v2_date_entered_lead", TRAILING_WEEKS)
     mql_weekly = fetch_weekly_entries("hs_v2_date_entered_marketingqualifiedlead", TRAILING_WEEKS)
     sql_weekly = fetch_weekly_entries("hs_v2_date_entered_salesqualifiedlead", TRAILING_WEEKS)
+    customer_weekly = fetch_weekly_entries("hs_v2_date_entered_customer", TRAILING_WEEKS)
 
     print("Fetching SQL -> deal association rate...")
     sql_deal = fetch_sql_to_deal_rate(SQL_TO_DEAL_WINDOW_DAYS)
@@ -364,8 +409,10 @@ def main():
         "generated_at": datetime.now(timezone.utc).isoformat(),
         "goals": {"weekly_mql": WEEKLY_MQL_GOAL, "weekly_sql": WEEKLY_SQL_GOAL},
         "lifecycle_snapshot": lifecycle_snapshot,
+        "lead_weekly": lead_weekly,
         "mql_weekly": mql_weekly,
         "sql_weekly": sql_weekly,
+        "customer_weekly": customer_weekly,
         "mql_avg_4wk": trailing_avg(mql_weekly, 4),
         "sql_avg_4wk": trailing_avg(sql_weekly, 4),
         "mql_anomaly_weeks": mql_anomalies,

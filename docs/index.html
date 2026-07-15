@@ -19,6 +19,13 @@
   }
   h1{font-size:22px; margin:0 0 4px;}
   .sub{color:var(--muted); font-size:13px; margin-bottom:24px;}
+  .caption{color:var(--muted); font-size:11px; margin-top:8px;}
+  .rangebar{display:flex; align-items:center; gap:10px; margin-bottom:22px; flex-wrap:wrap;}
+  .rangebar label{font-size:13px; color:var(--muted);}
+  .rangebar select{
+    background:var(--panel); color:var(--text); border:1px solid var(--border); border-radius:6px;
+    padding:6px 10px; font-size:13px;
+  }
   .grid{display:grid; grid-template-columns:repeat(auto-fit,minmax(200px,1fr)); gap:14px; margin-bottom:28px;}
   .card{background:var(--panel); border:1px solid var(--border); border-radius:10px; padding:16px 18px;}
   .card .label{color:var(--muted); font-size:12px; text-transform:uppercase; letter-spacing:.04em; margin-bottom:6px;}
@@ -48,7 +55,6 @@
   .badge.high{background:rgba(229,83,75,.2); color:var(--bad);}
   .badge.medium{background:rgba(242,182,50,.2); color:var(--warn);}
   .badge.low{background:rgba(74,144,226,.2); color:var(--med);}
-  .refresh{font-size:12px; color:var(--muted); margin-top:-14px; margin-bottom:24px;}
   a{color:var(--accent);}
 </style>
 </head>
@@ -57,10 +63,29 @@
 <h1>Digital Brew — Marketing Funnel Dashboard</h1>
 <div class="sub" id="genAt">Loading…</div>
 
-<div class="grid" id="kpiGrid"></div>
+<div class="rangebar">
+  <label for="rangeSelect">Date range:</label>
+  <select id="rangeSelect">
+    <option value="week">This week</option>
+    <option value="30d">Last 30 days</option>
+    <option value="60d">Last 60 days</option>
+    <option value="90d" selected>Last 90 days</option>
+    <option value="quarter">This quarter</option>
+    <option value="ytd">Year to date</option>
+  </select>
+  <span class="sub" id="rangeLabel" style="margin:0;"></span>
+</div>
+
+<h2 style="font-size:15px; text-transform:uppercase; letter-spacing:.05em; color:var(--muted); margin:0 0 12px;">4-Week Rolling Average (always on, ignores the range picker above — the noise-reduction number worth reporting upward)</h2>
+<div class="grid" id="kpiGridFixed"></div>
 
 <section>
-  <h2>Funnel Snapshot (year to date)</h2>
+  <h2 id="periodHeading">Totals For Selected Period</h2>
+  <div class="grid" id="kpiGridPeriod"></div>
+</section>
+
+<section>
+  <h2 id="funnelHeading">Funnel Entries — Selected Period</h2>
   <div class="panel">
     <div class="funnel" id="funnel"></div>
   </div>
@@ -69,12 +94,13 @@
 <section>
   <div class="two-col">
     <div class="panel">
-      <h2>Weekly MQLs vs SQLs</h2>
+      <h2 id="weeklyChartHeading">Weekly MQLs vs SQLs</h2>
       <canvas id="weeklyChart" height="220"></canvas>
     </div>
     <div class="panel">
       <h2>Where recent MQLs came from</h2>
       <canvas id="sourceChart" height="220"></canvas>
+      <div class="caption" id="sourceCaption"></div>
     </div>
   </div>
 </section>
@@ -82,11 +108,12 @@
 <section>
   <div class="two-col">
     <div class="panel">
-      <h2>Deal Pipeline by Stage (YTD)</h2>
+      <h2>Deal Pipeline by Stage</h2>
       <table id="dealTable"></table>
+      <div class="caption">Current snapshot of all deals created this year, regardless of stage — not affected by the date range picker above.</div>
     </div>
     <div class="panel">
-      <h2>Deals Created per Week</h2>
+      <h2 id="dealsChartHeading">Deals Created per Week</h2>
       <canvas id="dealsChart" height="220"></canvas>
     </div>
   </div>
@@ -98,17 +125,19 @@
   <div class="grid" id="gaKpiGrid" style="margin-bottom:14px;"></div>
   <div class="two-col">
     <div class="panel">
-      <h2>Weekly Sessions vs Conversions</h2>
+      <h2 id="gaTrafficHeading">Weekly Sessions vs Conversions</h2>
       <canvas id="gaTrafficChart" height="220"></canvas>
     </div>
     <div class="panel">
       <h2>Sessions by Channel</h2>
       <canvas id="gaChannelChart" height="220"></canvas>
+      <div class="caption" id="gaChannelCaption"></div>
     </div>
   </div>
   <div class="panel" style="margin-top:16px;">
     <h2>Top Landing Pages</h2>
     <table id="gaLandingTable"></table>
+    <div class="caption" id="gaLandingCaption"></div>
   </div>
 </section>
 
@@ -118,14 +147,22 @@
 </section>
 
 <script>
+let DASHBOARD_DATA = null;
+const CHARTS = {}; // canvasId -> Chart instance, so we can destroy/recreate on range change
+
 async function load() {
   const res = await fetch('data.json?_=' + Date.now());
-  const data = await res.json();
-  render(data);
+  DASHBOARD_DATA = await res.json();
+  document.getElementById('rangeSelect').addEventListener('change', renderAll);
+  renderAll();
 }
 
 function fmtMoney(n) {
   return '$' + Math.round(n).toLocaleString();
+}
+
+function fmtDate(d) {
+  return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
 }
 
 function pctColor(pct) {
@@ -134,24 +171,77 @@ function pctColor(pct) {
   return 'bad';
 }
 
-function render(data) {
+// ---- Date range handling ---------------------------------------------
+function getRangeStart(key, now) {
+  const start = new Date(now);
+  if (key === '30d') { start.setUTCDate(now.getUTCDate() - 30); return start; }
+  if (key === '60d') { start.setUTCDate(now.getUTCDate() - 60); return start; }
+  if (key === '90d') { start.setUTCDate(now.getUTCDate() - 90); return start; }
+  if (key === 'quarter') {
+    const q = Math.floor(now.getUTCMonth() / 3);
+    return new Date(Date.UTC(now.getUTCFullYear(), q * 3, 1));
+  }
+  if (key === 'ytd') {
+    return new Date(Date.UTC(now.getUTCFullYear(), 0, 1));
+  }
+  // 'week' handled separately (last array entry only)
+  start.setUTCDate(now.getUTCDate() - 7);
+  return start;
+}
+
+function filterWeekly(weekly, rangeKey, now) {
+  if (!weekly || !weekly.length) return [];
+  if (rangeKey === 'week') return weekly.slice(-1);
+  const start = getRangeStart(rangeKey, now);
+  return weekly.filter(w => new Date(w.week + 'T00:00:00Z') >= start);
+}
+
+function sumCount(arr) { return arr.reduce((a, w) => a + (w.count ?? 0), 0); }
+function sumField(arr, field) { return arr.reduce((a, w) => a + (w[field] ?? 0), 0); }
+
+function rangeLabelText(rangeKey, now) {
+  const labels = { week: 'This week', '30d': 'Last 30 days', '60d': 'Last 60 days',
+                    '90d': 'Last 90 days', quarter: 'This quarter', ytd: 'Year to date' };
+  const start = rangeKey === 'week' ? getRangeStart('week', now) : getRangeStart(rangeKey, now);
+  return `${labels[rangeKey]} (${fmtDate(start)} – ${fmtDate(now)})`;
+}
+
+function destroyChart(id) {
+  if (CHARTS[id]) { CHARTS[id].destroy(); delete CHARTS[id]; }
+}
+
+// ---- Main render --------------------------------------------------------
+function renderAll() {
+  const data = DASHBOARD_DATA;
+  const rangeKey = document.getElementById('rangeSelect').value;
+  const now = new Date();
+
   document.getElementById('genAt').textContent =
     'Data as of ' + new Date(data.generated_at).toLocaleString() +
     (data.seed_note ? ' — ' + data.seed_note : '');
+  document.getElementById('rangeLabel').textContent = rangeLabelText(rangeKey, now);
 
-  // KPI cards
+  renderFixedKpis(data);
+  renderPeriodKpis(data, rangeKey, now);
+  renderFunnel(data, rangeKey, now);
+  renderWeeklyChart(data, rangeKey, now);
+  renderSourceChart(data);
+  renderDealTable(data);
+  renderDealsChart(data, rangeKey, now);
+  renderGa(data, rangeKey, now);
+  renderSuggestions(data);
+}
+
+function renderFixedKpis(data) {
   const mqlPct = Math.min(100, Math.round((data.mql_avg_4wk / data.goals.weekly_mql) * 100));
   const sqlPct = Math.min(100, Math.round((data.sql_avg_4wk / data.goals.weekly_sql) * 100));
   const cards = [
     {label: '4-Wk Avg MQLs / Week', value: data.mql_avg_4wk, goal: 'Goal: ' + data.goals.weekly_mql, pct: mqlPct},
     {label: '4-Wk Avg SQLs / Week', value: data.sql_avg_4wk, goal: 'Goal: ' + data.goals.weekly_sql, pct: sqlPct},
-    {label: 'SQL → Deal Rate', value: (data.sql_to_deal.rate_pct ?? '—') + '%', goal: data.sql_to_deal.sql_with_deal + ' of ' + data.sql_to_deal.sql_count + ' SQLs', pct: data.sql_to_deal.rate_pct},
-    {label: 'Deal Win Rate', value: (data.deals.win_rate_pct ?? '—') + '%', goal: data.deals.closed_won_count + ' won / ' + data.deals.closed_lost_count + ' lost', pct: data.deals.win_rate_pct},
-    {label: 'Open Pipeline Value', value: fmtMoney(data.deals.open_pipeline_value), goal: 'Across active deal stages', pct: null},
-    {label: 'Closed-Won Revenue (YTD)', value: fmtMoney(data.deals.closed_won_revenue), goal: data.deals.closed_won_count + ' deals closed', pct: null},
+    {label: 'SQL → Deal Rate', value: (data.sql_to_deal.rate_pct ?? '—') + '%', goal: `${data.sql_to_deal.sql_with_deal} of ${data.sql_to_deal.sql_count} SQLs (last ${data.sql_to_deal.window_days}d)`, pct: data.sql_to_deal.rate_pct},
+    {label: 'Open Pipeline Value', value: fmtMoney(data.deals.open_pipeline_value), goal: 'Current, across active deal stages', pct: null},
   ];
-  const kpiGrid = document.getElementById('kpiGrid');
-  kpiGrid.innerHTML = cards.map(c => `
+  document.getElementById('kpiGridFixed').innerHTML = cards.map(c => `
     <div class="card">
       <div class="label">${c.label}</div>
       <div class="value ${c.pct != null ? pctColor(c.pct) : ''}">${c.value}</div>
@@ -159,25 +249,68 @@ function render(data) {
       ${c.pct != null ? `<div class="bar"><div style="width:${Math.min(100,c.pct)}%; background:var(--${pctColor(c.pct) === 'ok' ? 'good' : pctColor(c.pct) === 'warn' ? 'warn' : 'bad'})"></div></div>` : ''}
     </div>
   `).join('');
+}
 
-  // Funnel
-  const order = ['Lead','Unqualified','Marketing Qualified Lead','Sales Qualified Lead','Customer'];
-  const funnel = document.getElementById('funnel');
-  const stages = order.filter(k => data.lifecycle_snapshot[k] !== undefined);
-  funnel.innerHTML = stages.map((k, i) => `
-    <div class="stage"><div class="n">${data.lifecycle_snapshot[k]}</div><div class="l">${k}</div></div>
+function renderPeriodKpis(data, rangeKey, now) {
+  const mql = filterWeekly(data.mql_weekly, rangeKey, now);
+  const sql = filterWeekly(data.sql_weekly, rangeKey, now);
+  const created = filterWeekly(data.deals.weekly_created, rangeKey, now);
+  const won = filterWeekly(data.deals.weekly_closed_won, rangeKey, now);
+  const lost = filterWeekly(data.deals.weekly_closed_lost, rangeKey, now);
+
+  const mqlTotal = sumCount(mql);
+  const sqlTotal = sumCount(sql);
+  const dealsCreated = sumCount(created);
+  const wonCount = sumCount(won), wonAmount = sumField(won, 'amount');
+  const lostCount = sumCount(lost), lostAmount = sumField(lost, 'amount');
+  const winRate = (wonCount + lostCount) ? Math.round((wonCount / (wonCount + lostCount)) * 1000) / 10 : null;
+
+  const cards = [
+    {label: 'MQLs', value: mqlTotal, goal: 'In selected period'},
+    {label: 'SQLs', value: sqlTotal, goal: 'In selected period'},
+    {label: 'Deals Created', value: dealsCreated, goal: 'In selected period'},
+    {label: 'Deals Won', value: wonCount, goal: fmtMoney(wonAmount) + ' revenue'},
+    {label: 'Deals Lost', value: lostCount, goal: fmtMoney(lostAmount) + ' lost value'},
+    {label: 'Win Rate', value: (winRate ?? '—') + (winRate != null ? '%' : ''), goal: `${wonCount} won / ${lostCount} lost`},
+  ];
+  document.getElementById('kpiGridPeriod').innerHTML = cards.map(c => `
+    <div class="card">
+      <div class="label">${c.label}</div>
+      <div class="value">${c.value}</div>
+      <div class="goal">${c.goal}</div>
+    </div>
+  `).join('');
+}
+
+function renderFunnel(data, rangeKey, now) {
+  const lead = sumCount(filterWeekly(data.lead_weekly, rangeKey, now));
+  const mql = sumCount(filterWeekly(data.mql_weekly, rangeKey, now));
+  const sql = sumCount(filterWeekly(data.sql_weekly, rangeKey, now));
+  const customer = sumCount(filterWeekly(data.customer_weekly, rangeKey, now));
+
+  const stages = [
+    {n: lead, l: 'Entered Lead'},
+    {n: mql, l: 'Entered MQL'},
+    {n: sql, l: 'Entered SQL'},
+    {n: customer, l: 'Became Customer'},
+  ];
+  document.getElementById('funnel').innerHTML = stages.map((s, i) => `
+    <div class="stage"><div class="n">${s.n}</div><div class="l">${s.l}</div></div>
     ${i < stages.length - 1 ? '<div class="arrow">→</div>' : ''}
   `).join('');
+}
 
-  // Weekly MQL/SQL chart
-  const weeks = data.mql_weekly.map(w => w.week.slice(5));
-  new Chart(document.getElementById('weeklyChart'), {
+function renderWeeklyChart(data, rangeKey, now) {
+  const mql = filterWeekly(data.mql_weekly, rangeKey, now);
+  const sql = filterWeekly(data.sql_weekly, rangeKey, now);
+  destroyChart('weeklyChart');
+  CHARTS['weeklyChart'] = new Chart(document.getElementById('weeklyChart'), {
     type: 'line',
     data: {
-      labels: weeks,
+      labels: mql.map(w => w.week.slice(5)),
       datasets: [
-        {label: 'MQLs', data: data.mql_weekly.map(w => w.count), borderColor: '#f2b632', backgroundColor: 'rgba(242,182,50,.15)', tension: .3, fill: true},
-        {label: 'SQLs', data: data.sql_weekly.map(w => w.count), borderColor: '#4a90e2', backgroundColor: 'rgba(74,144,226,.15)', tension: .3, fill: true},
+        {label: 'MQLs', data: mql.map(w => w.count), borderColor: '#f2b632', backgroundColor: 'rgba(242,182,50,.15)', tension: .3, fill: true},
+        {label: 'SQLs', data: sql.map(w => w.count), borderColor: '#4a90e2', backgroundColor: 'rgba(74,144,226,.15)', tension: .3, fill: true},
       ]
     },
     options: {
@@ -189,11 +322,13 @@ function render(data) {
       }
     }
   });
+}
 
-  // Source breakdown
+function renderSourceChart(data) {
   const srcLabels = Object.keys(data.source_breakdown);
   const srcValues = Object.values(data.source_breakdown);
-  new Chart(document.getElementById('sourceChart'), {
+  destroyChart('sourceChart');
+  CHARTS['sourceChart'] = new Chart(document.getElementById('sourceChart'), {
     type: 'doughnut',
     data: {
       labels: srcLabels,
@@ -201,19 +336,25 @@ function render(data) {
     },
     options: {responsive: true, plugins: {legend: {position: 'bottom', labels: {color: '#9aa4b2', boxWidth: 12, font: {size: 11}}}}}
   });
+  document.getElementById('sourceCaption').textContent =
+    `Fixed ${data.sql_to_deal.window_days ? '' : ''}last-45-day window — independent of the date range picker above.`;
+}
 
-  // Deal table
+function renderDealTable(data) {
   const stageRows = Object.entries(data.deals.by_stage)
     .map(([name, v]) => `<tr><td>${name}</td><td>${v.count}</td><td>${fmtMoney(v.amount)}</td></tr>`).join('');
   document.getElementById('dealTable').innerHTML = `
     <tr><th>Stage</th><th>Count</th><th>Amount</th></tr>${stageRows}`;
+}
 
-  // Deals created weekly
-  new Chart(document.getElementById('dealsChart'), {
+function renderDealsChart(data, rangeKey, now) {
+  const created = filterWeekly(data.deals.weekly_created, rangeKey, now);
+  destroyChart('dealsChart');
+  CHARTS['dealsChart'] = new Chart(document.getElementById('dealsChart'), {
     type: 'bar',
     data: {
-      labels: data.deals.weekly_created.map(w => w.week.slice(5)),
-      datasets: [{label: 'Deals created', data: data.deals.weekly_created.map(w => w.count), backgroundColor: '#3fbf7f'}]
+      labels: created.map(w => w.week.slice(5)),
+      datasets: [{label: 'Deals created', data: created.map(w => w.count), backgroundColor: '#3fbf7f'}]
     },
     options: {
       responsive: true,
@@ -224,66 +365,78 @@ function render(data) {
       }
     }
   });
+}
 
-  // Google Analytics section (only if data has been fetched)
-  if (data.ga4) {
-    const ga = data.ga4;
-    document.getElementById('gaSection').style.display = '';
-    document.getElementById('gaNote').textContent = ga.sample_data
-      ? '⚠ Sample data — ' + ga.sample_note
-      : 'Data as of ' + new Date(ga.generated_at).toLocaleString();
+function renderGa(data, rangeKey, now) {
+  if (!data.ga4) return;
+  const ga = data.ga4;
+  document.getElementById('gaSection').style.display = '';
+  document.getElementById('gaNote').textContent = ga.sample_data
+    ? '⚠ Sample data — ' + ga.sample_note
+    : 'Data as of ' + new Date(ga.generated_at).toLocaleString();
 
-    const gaCards = [
-      {label: '4-Wk Avg Sessions / Week', value: ga.sessions_avg_4wk, goal: 'Rolling average', pct: null},
-      {label: '4-Wk Avg Conversions / Week', value: ga.conversions_avg_4wk, goal: 'Rolling average', pct: null},
-    ];
-    document.getElementById('gaKpiGrid').innerHTML = gaCards.map(c => `
-      <div class="card">
-        <div class="label">${c.label}</div>
-        <div class="value">${c.value}</div>
-        <div class="goal">${c.goal}</div>
-      </div>
-    `).join('');
+  const traffic = filterWeekly(ga.weekly_traffic, rangeKey, now);
+  const sessionsTotal = sumField(traffic, 'sessions');
+  const conversionsTotal = sumField(traffic, 'conversions');
+  const gaCards = [
+    {label: 'Sessions', value: sessionsTotal, goal: 'In selected period'},
+    {label: 'Conversions', value: conversionsTotal, goal: 'In selected period'},
+    {label: '4-Wk Avg Sessions / Week', value: ga.sessions_avg_4wk, goal: 'Rolling average, fixed'},
+    {label: '4-Wk Avg Conversions / Week', value: ga.conversions_avg_4wk, goal: 'Rolling average, fixed'},
+  ];
+  document.getElementById('gaKpiGrid').innerHTML = gaCards.map(c => `
+    <div class="card">
+      <div class="label">${c.label}</div>
+      <div class="value">${c.value}</div>
+      <div class="goal">${c.goal}</div>
+    </div>
+  `).join('');
 
-    new Chart(document.getElementById('gaTrafficChart'), {
-      type: 'line',
-      data: {
-        labels: ga.weekly_traffic.map(w => w.week.slice(5)),
-        datasets: [
-          {label: 'Sessions', data: ga.weekly_traffic.map(w => w.sessions), borderColor: '#4a90e2', backgroundColor: 'rgba(74,144,226,.15)', tension: .3, fill: true, yAxisID: 'y'},
-          {label: 'Conversions', data: ga.weekly_traffic.map(w => w.conversions), borderColor: '#3fbf7f', backgroundColor: 'rgba(63,191,127,.15)', tension: .3, fill: true, yAxisID: 'y1'},
-        ]
-      },
-      options: {
-        responsive: true,
-        plugins: {legend: {labels: {color: '#9aa4b2'}}},
-        scales: {
-          x: {ticks: {color: '#9aa4b2', maxRotation: 60, minRotation: 45}, grid: {color: '#2a2f3a'}},
-          y: {position: 'left', ticks: {color: '#9aa4b2'}, grid: {color: '#2a2f3a'}},
-          y1: {position: 'right', ticks: {color: '#9aa4b2'}, grid: {display: false}}
-        }
+  destroyChart('gaTrafficChart');
+  CHARTS['gaTrafficChart'] = new Chart(document.getElementById('gaTrafficChart'), {
+    type: 'line',
+    data: {
+      labels: traffic.map(w => w.week.slice(5)),
+      datasets: [
+        {label: 'Sessions', data: traffic.map(w => w.sessions), borderColor: '#4a90e2', backgroundColor: 'rgba(74,144,226,.15)', tension: .3, fill: true, yAxisID: 'y'},
+        {label: 'Conversions', data: traffic.map(w => w.conversions), borderColor: '#3fbf7f', backgroundColor: 'rgba(63,191,127,.15)', tension: .3, fill: true, yAxisID: 'y1'},
+      ]
+    },
+    options: {
+      responsive: true,
+      plugins: {legend: {labels: {color: '#9aa4b2'}}},
+      scales: {
+        x: {ticks: {color: '#9aa4b2', maxRotation: 60, minRotation: 45}, grid: {color: '#2a2f3a'}},
+        y: {position: 'left', ticks: {color: '#9aa4b2'}, grid: {color: '#2a2f3a'}},
+        y1: {position: 'right', ticks: {color: '#9aa4b2'}, grid: {display: false}}
       }
-    });
+    }
+  });
 
-    const chLabels = Object.keys(ga.channel_breakdown);
-    const chValues = chLabels.map(k => ga.channel_breakdown[k].sessions);
-    new Chart(document.getElementById('gaChannelChart'), {
-      type: 'doughnut',
-      data: {
-        labels: chLabels,
-        datasets: [{data: chValues, backgroundColor: ['#4a90e2','#f2b632','#3fbf7f','#e5534b','#9b6bd6','#e28a4a','#5ac8d8','#c9c9c9']}]
-      },
-      options: {responsive: true, plugins: {legend: {position: 'bottom', labels: {color: '#9aa4b2', boxWidth: 12, font: {size: 11}}}}}
-    });
+  const chLabels = Object.keys(ga.channel_breakdown);
+  const chValues = chLabels.map(k => ga.channel_breakdown[k].sessions);
+  destroyChart('gaChannelChart');
+  CHARTS['gaChannelChart'] = new Chart(document.getElementById('gaChannelChart'), {
+    type: 'doughnut',
+    data: {
+      labels: chLabels,
+      datasets: [{data: chValues, backgroundColor: ['#4a90e2','#f2b632','#3fbf7f','#e5534b','#9b6bd6','#e28a4a','#5ac8d8','#c9c9c9']}]
+    },
+    options: {responsive: true, plugins: {legend: {position: 'bottom', labels: {color: '#9aa4b2', boxWidth: 12, font: {size: 11}}}}}
+  });
+  document.getElementById('gaChannelCaption').textContent =
+    `Fixed last-${ga.channel_window_days}-day window — independent of the date range picker above.`;
 
-    const lpRows = ga.landing_pages.map(p => `
-      <tr><td>${p.page}</td><td>${p.sessions}</td><td>${p.engagement_rate_pct}%</td><td>${p.conversions}</td></tr>
-    `).join('');
-    document.getElementById('gaLandingTable').innerHTML = `
-      <tr><th>Page</th><th>Sessions</th><th>Engagement Rate</th><th>Conversions</th></tr>${lpRows}`;
-  }
+  const lpRows = ga.landing_pages.map(p => `
+    <tr><td>${p.page}</td><td>${p.sessions}</td><td>${p.engagement_rate_pct}%</td><td>${p.conversions}</td></tr>
+  `).join('');
+  document.getElementById('gaLandingTable').innerHTML = `
+    <tr><th>Page</th><th>Sessions</th><th>Engagement Rate</th><th>Conversions</th></tr>${lpRows}`;
+  document.getElementById('gaLandingCaption').textContent =
+    `Fixed last-${ga.landing_page_window_days}-day window — independent of the date range picker above.`;
+}
 
-  // Suggestions
+function renderSuggestions(data) {
   document.getElementById('suggestions').innerHTML = data.suggestions.map(s => `
     <div class="sugg ${s.severity}">
       <div class="t"><span class="badge ${s.severity}">${s.severity}</span>${s.title}</div>

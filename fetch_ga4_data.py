@@ -32,7 +32,7 @@ from google.analytics.data_v1beta.types import (
 PROPERTY_ID = os.environ.get("GA4_PROPERTY_ID")
 SERVICE_ACCOUNT_JSON = os.environ.get("GA4_SERVICE_ACCOUNT_JSON")
 
-TRAILING_WEEKS = 12          # keep in sync with fetch_hubspot_data.py
+TRAILING_WEEKS = 53          # keep in sync with fetch_hubspot_data.py (drives the date-range selector)
 CHANNEL_WINDOW_DAYS = 45     # keep in sync with SOURCE_WINDOW_DAYS
 LANDING_PAGE_WINDOW_DAYS = 45
 LANDING_PAGE_LIMIT = 10
