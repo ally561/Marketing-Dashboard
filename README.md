@@ -51,6 +51,41 @@ Name: `HUBSPOT_TOKEN`, value: the token from step 3.
 - To run it right now: Repo → **Actions** → "Refresh marketing dashboard data" → **Run workflow**.
 - Locally: `HUBSPOT_TOKEN=your-token python fetch_hubspot_data.py`
 
+## 6. (Optional) Connect Google Analytics 4
+
+The dashboard's GA4 section currently shows sample/placeholder numbers so you can
+see what it looks like. Here's how to wire in real traffic data.
+
+**First, find out if a Google Cloud project already exists for Digital Brew.**
+Go to [console.cloud.google.com](https://console.cloud.google.com) signed in
+with whatever Google account manages your GA4 property. If you land on a
+dashboard with an existing project selected (top-left dropdown), one may
+already exist — ask whoever set up your GA4/Google Ads if they know. If you
+see "Select a project" with nothing there, you're starting fresh, which is fine.
+
+**Then:**
+
+1. In Google Cloud Console: **New Project** (name it e.g. "digital-brew-dashboard").
+2. Left menu → **APIs & Services → Library** → search "Google Analytics Data API" → **Enable**.
+3. Left menu → **APIs & Services → Credentials** → **Create Credentials → Service account**.
+   Give it any name (e.g. "dashboard-reader") → Create and continue → skip the
+   optional role/access steps → Done.
+4. Click into the new service account → **Keys** tab → **Add key → Create new key → JSON**.
+   This downloads a `.json` file — treat it like a password.
+5. Copy the service account's email address (looks like
+   `dashboard-reader@your-project.iam.gserviceaccount.com`).
+6. In Google Analytics: **Admin** (gear icon) → under the *Property* column,
+   **Property Access Management** → blue **+** button → **Add users** → paste
+   the service account email → role: **Viewer** → Add.
+7. Also in GA4 Admin → **Property Settings**, copy the **Property ID** (a number,
+   not the "G-XXXX" measurement ID).
+8. Add two more GitHub secrets (Settings → Secrets and variables → Actions):
+   - `GA4_PROPERTY_ID` — the numeric property ID from step 7.
+   - `GA4_SERVICE_ACCOUNT_JSON` — open the downloaded `.json` file from step 4
+     and paste its entire contents as the secret value.
+9. Re-run the workflow (Actions → Run workflow). The GA4 section will populate
+   with real traffic, channel, and landing-page data instead of the sample numbers.
+
 ## What it tracks
 
 - **Funnel snapshot** — current contact counts by lifecycle stage (Lead → MQL → SQL → Customer), year to date.
@@ -59,6 +94,7 @@ Name: `HUBSPOT_TOKEN`, value: the token from step 3.
 - **Deal pipeline by stage** — count and dollar amount at each stage, plus win rate and closed-won revenue.
 - **Source breakdown** — where recent MQLs originated (Paid Search, Organic, Referrals, Offline, etc.).
 - **Suggestions panel** — rules-based checks against the data above (not a generic checklist): flags things like bulk-import weeks skewing your average, SQLs going stale with no deal, one traffic source dominating (often an attribution gap, not real performance), and thin paid-search volume.
+- **Google Analytics traffic** (once connected) — weekly sessions/users/conversions with a 4-week rolling average, sessions by channel, and a top-landing-pages table with engagement rate and conversions, so you can compare site traffic against HubSpot's MQL numbers directly.
 
 ## Editing goals or thresholds
 
@@ -78,9 +114,10 @@ remove, or adjust thresholds there as your definitions of MQL/SQL evolve.
 
 ```
 fetch_hubspot_data.py          # pulls HubSpot data, computes metrics, writes docs/data.json
+fetch_ga4_data.py              # pulls GA4 data, merges into docs/data.json (optional, see step 6)
 requirements.txt
 .github/workflows/update-dashboard.yml   # weekly auto-refresh
 docs/
   index.html                   # the dashboard itself (served by GitHub Pages)
-  data.json                    # generated data (seeded with a real snapshot for now)
+  data.json                    # generated data (seeded with a real HubSpot snapshot + sample GA4 numbers for now)
 ```

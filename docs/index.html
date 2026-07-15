@@ -92,6 +92,26 @@
   </div>
 </section>
 
+<section id="gaSection" style="display:none;">
+  <h2>Google Analytics — Website Traffic</h2>
+  <div class="sub" id="gaNote" style="margin-bottom:14px;"></div>
+  <div class="grid" id="gaKpiGrid" style="margin-bottom:14px;"></div>
+  <div class="two-col">
+    <div class="panel">
+      <h2>Weekly Sessions vs Conversions</h2>
+      <canvas id="gaTrafficChart" height="220"></canvas>
+    </div>
+    <div class="panel">
+      <h2>Sessions by Channel</h2>
+      <canvas id="gaChannelChart" height="220"></canvas>
+    </div>
+  </div>
+  <div class="panel" style="margin-top:16px;">
+    <h2>Top Landing Pages</h2>
+    <table id="gaLandingTable"></table>
+  </div>
+</section>
+
 <section>
   <h2>Marketing Director Suggestions</h2>
   <div id="suggestions"></div>
@@ -204,6 +224,64 @@ function render(data) {
       }
     }
   });
+
+  // Google Analytics section (only if data has been fetched)
+  if (data.ga4) {
+    const ga = data.ga4;
+    document.getElementById('gaSection').style.display = '';
+    document.getElementById('gaNote').textContent = ga.sample_data
+      ? '⚠ Sample data — ' + ga.sample_note
+      : 'Data as of ' + new Date(ga.generated_at).toLocaleString();
+
+    const gaCards = [
+      {label: '4-Wk Avg Sessions / Week', value: ga.sessions_avg_4wk, goal: 'Rolling average', pct: null},
+      {label: '4-Wk Avg Conversions / Week', value: ga.conversions_avg_4wk, goal: 'Rolling average', pct: null},
+    ];
+    document.getElementById('gaKpiGrid').innerHTML = gaCards.map(c => `
+      <div class="card">
+        <div class="label">${c.label}</div>
+        <div class="value">${c.value}</div>
+        <div class="goal">${c.goal}</div>
+      </div>
+    `).join('');
+
+    new Chart(document.getElementById('gaTrafficChart'), {
+      type: 'line',
+      data: {
+        labels: ga.weekly_traffic.map(w => w.week.slice(5)),
+        datasets: [
+          {label: 'Sessions', data: ga.weekly_traffic.map(w => w.sessions), borderColor: '#4a90e2', backgroundColor: 'rgba(74,144,226,.15)', tension: .3, fill: true, yAxisID: 'y'},
+          {label: 'Conversions', data: ga.weekly_traffic.map(w => w.conversions), borderColor: '#3fbf7f', backgroundColor: 'rgba(63,191,127,.15)', tension: .3, fill: true, yAxisID: 'y1'},
+        ]
+      },
+      options: {
+        responsive: true,
+        plugins: {legend: {labels: {color: '#9aa4b2'}}},
+        scales: {
+          x: {ticks: {color: '#9aa4b2', maxRotation: 60, minRotation: 45}, grid: {color: '#2a2f3a'}},
+          y: {position: 'left', ticks: {color: '#9aa4b2'}, grid: {color: '#2a2f3a'}},
+          y1: {position: 'right', ticks: {color: '#9aa4b2'}, grid: {display: false}}
+        }
+      }
+    });
+
+    const chLabels = Object.keys(ga.channel_breakdown);
+    const chValues = chLabels.map(k => ga.channel_breakdown[k].sessions);
+    new Chart(document.getElementById('gaChannelChart'), {
+      type: 'doughnut',
+      data: {
+        labels: chLabels,
+        datasets: [{data: chValues, backgroundColor: ['#4a90e2','#f2b632','#3fbf7f','#e5534b','#9b6bd6','#e28a4a','#5ac8d8','#c9c9c9']}]
+      },
+      options: {responsive: true, plugins: {legend: {position: 'bottom', labels: {color: '#9aa4b2', boxWidth: 12, font: {size: 11}}}}}
+    });
+
+    const lpRows = ga.landing_pages.map(p => `
+      <tr><td>${p.page}</td><td>${p.sessions}</td><td>${p.engagement_rate_pct}%</td><td>${p.conversions}</td></tr>
+    `).join('');
+    document.getElementById('gaLandingTable').innerHTML = `
+      <tr><th>Page</th><th>Sessions</th><th>Engagement Rate</th><th>Conversions</th></tr>${lpRows}`;
+  }
 
   // Suggestions
   document.getElementById('suggestions').innerHTML = data.suggestions.map(s => `

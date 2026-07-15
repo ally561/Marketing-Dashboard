@@ -144,5 +144,44 @@
       "title": "Paid Search is a small share of recent MQLs",
       "detail": "Paid Search produced only 20 of 340 recent MQLs (5.9%). If Google Ads spend hasn't dropped proportionally, cost per lead is climbing. Review search terms weekly, tighten to high-intent keywords, and connect HubSpot lifecycle stages (MQL/SQL) into Google as Enhanced Conversions so Smart Bidding optimizes toward quality, not just form fills."
     }
-  ]
+  ],
+  "ga4": {
+    "sample_data": true,
+    "sample_note": "GA4 is not connected yet, so these numbers are illustrative placeholders (NOT real traffic data) so you can see what the panel looks like. Follow the GA4 setup steps in README.md, then run the workflow to replace this with real data.",
+    "generated_at": "2026-07-13T15:00:00+00:00",
+    "weekly_traffic": [
+      { "week": "2026-04-20", "sessions": 1450, "users": 1120, "conversions": 12, "partial": false },
+      { "week": "2026-04-27", "sessions": 1510, "users": 1180, "conversions": 14, "partial": false },
+      { "week": "2026-05-04", "sessions": 1600, "users": 1250, "conversions": 15, "partial": false },
+      { "week": "2026-05-11", "sessions": 1580, "users": 1230, "conversions": 13, "partial": false },
+      { "week": "2026-05-18", "sessions": 1690, "users": 1300, "conversions": 17, "partial": false },
+      { "week": "2026-05-25", "sessions": 1720, "users": 1340, "conversions": 19, "partial": false },
+      { "week": "2026-06-01", "sessions": 1550, "users": 1210, "conversions": 11, "partial": false },
+      { "week": "2026-06-08", "sessions": 1780, "users": 1390, "conversions": 20, "partial": false },
+      { "week": "2026-06-15", "sessions": 1830, "users": 1420, "conversions": 22, "partial": false },
+      { "week": "2026-06-22", "sessions": 1670, "users": 1300, "conversions": 16, "partial": false },
+      { "week": "2026-06-29", "sessions": 1620, "users": 1260, "conversions": 14, "partial": false },
+      { "week": "2026-07-06", "sessions": 1700, "users": 1330, "conversions": 18, "partial": false },
+      { "week": "2026-07-13", "sessions": 210, "users": 170, "conversions": 2, "partial": true }
+    ],
+    "sessions_avg_4wk": 1705.0,
+    "conversions_avg_4wk": 17.5,
+    "channel_breakdown": {
+      "Organic Search": { "sessions": 3100, "conversions": 28 },
+      "Direct": { "sessions": 1900, "conversions": 15 },
+      "Paid Search": { "sessions": 950, "conversions": 22 },
+      "Organic Social": { "sessions": 620, "conversions": 4 },
+      "Referral": { "sessions": 410, "conversions": 6 },
+      "Email": { "sessions": 280, "conversions": 5 }
+    },
+    "landing_pages": [
+      { "page": "/", "sessions": 1850, "engagement_rate_pct": 58.2, "conversions": 14 },
+      { "page": "/video-production", "sessions": 640, "engagement_rate_pct": 44.1, "conversions": 9 },
+      { "page": "/animation-services", "sessions": 520, "engagement_rate_pct": 39.5, "conversions": 6 },
+      { "page": "/case-studies", "sessions": 410, "engagement_rate_pct": 61.0, "conversions": 5 },
+      { "page": "/contact", "sessions": 300, "engagement_rate_pct": 52.7, "conversions": 11 }
+    ],
+    "channel_window_days": 45,
+    "landing_page_window_days": 45
+  }
 }
