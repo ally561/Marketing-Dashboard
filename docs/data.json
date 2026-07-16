@@ -791,22 +791,26 @@
     {
       "severity": "medium",
       "title": "Three weeks look like data anomalies, not organic funnel activity",
-      "detail": "Weeks starting 2026-02-23, 2026-06-08 and 2026-06-15 show MQL/SQL counts far above the trailing median (up to 212 MQLs and 32 SQLs in one week). These spikes are pulling your 4-week rolling average up to 70 MQLs/11.5 SQLs per week \u2014 which looks like you're hitting goal, but is almost certainly a bulk import, list re-sync, or lifecycle backfill rather than real demand. Check with whoever manages HubSpot imports before reporting these numbers upward."
+      "detail": "Weeks starting 2026-02-23, 2026-06-08 and 2026-06-15 show MQL/SQL counts far above the trailing median (up to 212 MQLs and 32 SQLs in one week). These spikes are pulling your 4-week rolling average up to 70 MQLs/11.5 SQLs per week \u2014 which looks like you're hitting goal, but is almost certainly a bulk import, list re-sync, or lifecycle backfill rather than real demand. Check with whoever manages HubSpot imports before reporting these numbers upward.",
+      "source": "hubspot"
     },
     {
       "severity": "high",
       "title": "Less than half of SQLs ever get a deal created",
-      "detail": "Only 43 of 94 SQLs (45.7%) from the last ~15 weeks have an associated deal in HubSpot. This is the exact gap flagged in your ChatGPT conversation \u2014 add a workflow that flags any SQL with no deal after 14 days, and review whether sales is creating deals consistently. This is likely a bigger lever than generating more top-of-funnel leads."
+      "detail": "Only 43 of 94 SQLs (45.7%) from the last ~15 weeks have an associated deal in HubSpot. This is the exact gap flagged in your ChatGPT conversation \u2014 add a workflow that flags any SQL with no deal after 14 days, and review whether sales is creating deals consistently. This is likely a bigger lever than generating more top-of-funnel leads.",
+      "source": "hubspot"
     },
     {
       "severity": "medium",
       "title": "'Offline Sources' accounts for over half of recent MQLs",
-      "detail": "Offline Sources produced 260 of 340 MQLs (76%) in the last ~45 days. This almost always means attribution is incomplete rather than offline channels genuinely outperforming paid and organic \u2014 audit your tracking (UTM parameters, form source mapping, CRM import tagging) before shifting budget away from channels that look weak."
+      "detail": "Offline Sources produced 260 of 340 MQLs (76%) in the last ~45 days. This almost always means attribution is incomplete rather than offline channels genuinely outperforming paid and organic \u2014 audit your tracking (UTM parameters, form source mapping, CRM import tagging) before shifting budget away from channels that look weak.",
+      "source": "hubspot"
     },
     {
       "severity": "low",
       "title": "Paid Search is a small share of recent MQLs",
-      "detail": "Paid Search produced only 20 of 340 recent MQLs (5.9%). If Google Ads spend hasn't dropped proportionally, cost per lead is climbing. Review search terms weekly, tighten to high-intent keywords, and connect HubSpot lifecycle stages (MQL/SQL) into Google as Enhanced Conversions so Smart Bidding optimizes toward quality, not just form fills."
+      "detail": "Paid Search produced only 20 of 340 recent MQLs (5.9%). If Google Ads spend hasn't dropped proportionally, cost per lead is climbing. Review search terms weekly, tighten to high-intent keywords, and connect HubSpot lifecycle stages (MQL/SQL) into Google as Enhanced Conversions so Smart Bidding optimizes toward quality, not just form fills.",
+      "source": "hubspot"
     }
   ],
   "ga4": {

@@ -147,14 +147,65 @@
 </section>
 
 <script>
+// Fill this in once you've deployed the Cloudflare Worker (see README.md,
+// "Live HubSpot data via Cloudflare Worker"). Leave blank to just use the
+// periodically-refreshed docs/data.json snapshot instead.
+const HUBSPOT_PROXY_URL = ""; // e.g. "https://digital-brew-hubspot-proxy.your-subdomain.workers.dev"
+
 let DASHBOARD_DATA = null;
 const CHARTS = {}; // canvasId -> Chart instance, so we can destroy/recreate on range change
 
 async function load() {
-  const res = await fetch('data.json?_=' + Date.now());
-  DASHBOARD_DATA = await res.json();
+  let staticData = null;
+  try {
+    const res = await fetch('data.json?_=' + Date.now());
+    staticData = await res.json();
+  } catch (e) {
+    console.error('Failed to load data.json', e);
+  }
+
+  let liveData = null;
+  let liveError = null;
+  if (HUBSPOT_PROXY_URL) {
+    try {
+      const res2 = await fetch(HUBSPOT_PROXY_URL + '?_=' + Date.now());
+      if (!res2.ok) throw new Error('HTTP ' + res2.status);
+      liveData = await res2.json();
+      if (liveData.error) throw new Error(liveData.error);
+    } catch (e) {
+      liveError = e.message || String(e);
+      console.error('Live HubSpot proxy failed, falling back to the static snapshot:', e);
+    }
+  }
+
+  DASHBOARD_DATA = mergeData(staticData, liveData);
+  DASHBOARD_DATA.__live_status = HUBSPOT_PROXY_URL
+    ? (liveData ? 'live' : 'error')
+    : 'static';
+  DASHBOARD_DATA.__live_error = liveError;
+
   document.getElementById('rangeSelect').addEventListener('change', renderAll);
   renderAll();
+}
+
+function mergeData(staticData, liveData) {
+  const merged = Object.assign({}, staticData || {});
+  if (liveData) {
+    // Live HubSpot fields win outright.
+    const hubspotFields = [
+      'generated_at', 'goals', 'lifecycle_snapshot', 'lead_weekly', 'mql_weekly', 'sql_weekly',
+      'customer_weekly', 'mql_avg_4wk', 'sql_avg_4wk', 'mql_anomaly_weeks', 'sql_anomaly_weeks',
+      'sql_to_deal', 'source_breakdown', 'deals',
+    ];
+    for (const f of hubspotFields) {
+      if (liveData[f] !== undefined) merged[f] = liveData[f];
+    }
+    // Suggestions: live HubSpot suggestions + whatever GA4 suggestions came from the static file
+    // (GA4 isn't live yet, so its suggestions still come from the periodic snapshot).
+    const gaSuggestions = ((staticData && staticData.suggestions) || []).filter(s => s.source === 'ga4');
+    merged.suggestions = [...(liveData.suggestions || []), ...gaSuggestions];
+  }
+  return merged;
 }
 
 function fmtMoney(n) {
@@ -216,8 +267,14 @@ function renderAll() {
   const rangeKey = document.getElementById('rangeSelect').value;
   const now = new Date();
 
+  let statusPrefix = '';
+  if (data.__live_status === 'live') {
+    statusPrefix = '🟢 Live HubSpot data (updated ~every minute) — ';
+  } else if (data.__live_status === 'error') {
+    statusPrefix = `🔴 Live HubSpot proxy unreachable (${data.__live_error}) — showing last known snapshot instead — `;
+  }
   document.getElementById('genAt').textContent =
-    'Data as of ' + new Date(data.generated_at).toLocaleString() +
+    statusPrefix + 'Data as of ' + new Date(data.generated_at).toLocaleString() +
     (data.seed_note ? ' — ' + data.seed_note : '');
   document.getElementById('rangeLabel').textContent = rangeLabelText(rangeKey, now);
 

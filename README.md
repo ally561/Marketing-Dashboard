@@ -86,6 +86,65 @@ see "Select a project" with nothing there, you're starting fresh, which is fine.
 9. Re-run the workflow (Actions → Run workflow). The GA4 section will populate
    with real traffic, channel, and landing-page data instead of the sample numbers.
 
+## 7. Live HubSpot data via Cloudflare Worker (optional)
+
+By default, HubSpot numbers refresh on whatever schedule the GitHub Actions
+workflow runs on (weekly, or whenever you manually trigger it). If you want
+the dashboard to show truly live HubSpot data every time someone opens or
+refreshes the page, add a Cloudflare Worker — a small script that runs on
+Cloudflare's servers, holds your HubSpot token securely, and the dashboard
+calls it directly.
+
+**This matters because your GitHub repo is public.** The HubSpot token can
+never be pasted into `index.html` or any file that ends up in the repo — it
+would be visible to anyone. A Worker keeps it server-side instead.
+
+No coding or command-line tool required — everything below is done through
+Cloudflare's website.
+
+1. Sign up free at [cloudflare.com](https://dash.cloudflare.com/sign-up) (or log in).
+2. Left sidebar → **Workers & Pages** → **Create** → **Create Worker**.
+3. Give it a name, e.g. `digital-brew-hubspot-proxy` → **Deploy** (this creates
+   a placeholder "Hello World" worker — that's expected, you'll replace it next).
+4. Click **Edit code**. Delete everything in the editor, then paste in the
+   entire contents of `cloudflare-worker/worker.js` from this repo. Click
+   **Save and deploy**.
+5. Go to the Worker's **Settings → Variables and Secrets** → **Add** →
+   Name: `HUBSPOT_TOKEN`, Value: the same HubSpot private app token from
+   step 3 above → mark it **Encrypt** → Save.
+6. (Optional but recommended) Add a second variable, `ALLOWED_ORIGIN`, set to
+   your GitHub Pages URL (e.g. `https://ally561.github.io`) — this stops
+   other websites from calling your Worker. Leave it unset if you'd rather
+   not bother; it'll default to allowing any origin.
+7. Copy the Worker's URL — shown at the top of its page, looks like
+   `https://digital-brew-hubspot-proxy.<your-subdomain>.workers.dev`.
+8. Open `docs/index.html` in this repo, find the line near the top of the
+   `<script>` block that says:
+   ```js
+   const HUBSPOT_PROXY_URL = "";
+   ```
+   Paste your Worker's URL between the quotes, e.g.
+   ```js
+   const HUBSPOT_PROXY_URL = "https://digital-brew-hubspot-proxy.ally561.workers.dev";
+   ```
+   Commit that change.
+9. Reload your dashboard — the header should now say **"🟢 Live HubSpot
+   data (updated ~every minute)"**. If the Worker is ever unreachable, the
+   dashboard automatically falls back to the last saved `data.json` snapshot
+   and shows a 🔴 warning instead of breaking.
+
+**Why "every minute" and not truly instant:** the Worker caches its response
+for 60 seconds (edit `CACHE_SECONDS` at the top of `worker.js` to change
+this) so that if your whole team opens the dashboard at once, it doesn't
+fire off dozens of simultaneous requests at HubSpot's API and risk hitting
+rate limits. In practice this is as close to real-time as is safe to run
+without a paid HubSpot rate-limit tier.
+
+**Note:** this only makes the HubSpot half of the dashboard live. The Google
+Analytics section still updates on the GitHub Actions schedule — ask if
+you'd like that made live the same way later; it's a similar pattern but
+GA4's authentication is a bit more involved to replicate in a Worker.
+
 ## What it tracks
 
 - **Funnel snapshot** — current contact counts by lifecycle stage (Lead → MQL → SQL → Customer), year to date.

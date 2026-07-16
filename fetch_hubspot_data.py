@@ -377,6 +377,11 @@ def build_suggestions(mql_weekly, sql_weekly, sql_deal, deals, source_breakdown,
                       "dashboard checks. Keep monitoring the rolling 4-week trend."
         })
 
+    # Tag every suggestion so the dashboard can merge live HubSpot suggestions with
+    # separately-generated GA4 suggestions without guessing based on text content.
+    for item in s:
+        item["source"] = "hubspot"
+
     return s
 
 

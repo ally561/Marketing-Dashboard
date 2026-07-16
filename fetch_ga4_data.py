@@ -201,6 +201,10 @@ def build_ga_suggestions(weekly_traffic, channel_breakdown, landing_pages):
                           f"with what drove the click — worth reviewing before spending more to send traffic there."
             })
 
+    # Tagged so the dashboard can merge these with live HubSpot suggestions deterministically.
+    for item in s:
+        item["source"] = "ga4"
+
     return s
 
 
